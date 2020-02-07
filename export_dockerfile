@@ -1,0 +1,61 @@
+FROM jenkins:2.60.1
+ADD file:93a0dbb6973bc13e5478292bfe283ff91745ca6e23b6fd3363f0661c45deb1ec in /
+CMD ["bash"]
+RUN /bin/sh -c apt-get update \
+    && apt-get install -y --no-install-recommends 		ca-certificates 		curl 		wget 	\
+    && rm -rf /var/lib/apt/lists/*
+RUN /bin/sh -c set -ex; 	if ! command -v gpg > /dev/null; then 		apt-get update; 		apt-get install -y --no-install-recommends 			gnupg2 			dirmngr 		; 		rm -rf /var/lib/apt/lists/*; 	fi
+RUN /bin/sh -c apt-get update \
+    && apt-get install -y --no-install-recommends 		bzr 		git 		mercurial 		openssh-client 		subversion 				procps 	\
+    && rm -rf /var/lib/apt/lists/*
+RUN /bin/sh -c apt-get update \
+    && apt-get install -y --no-install-recommends 		bzip2 		unzip 		xz-utils 	\
+    && rm -rf /var/lib/apt/lists/*
+ENV LANG=C.UTF-8
+RUN /bin/sh -c { 		echo '#!/bin/sh'; 		echo 'set -e'; 		echo; 		echo 'dirname "$(dirname "$(readlink -f "$(which javac || which java)")")"'; 	} > /usr/local/bin/docker-java-home 	\
+    && chmod +x /usr/local/bin/docker-java-home
+RUN /bin/sh -c ln -svT "/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)" /docker-java-home
+ENV JAVA_HOME=/docker-java-home
+ENV JAVA_VERSION=8u131
+ENV JAVA_DEBIAN_VERSION=8u131-b11-2
+ENV CA_CERTIFICATES_JAVA_VERSION=20170531+nmu1
+RUN /bin/sh -c set -ex; 		apt-get update; 	apt-get install -y 		openjdk-8-jdk="$JAVA_DEBIAN_VERSION" 		ca-certificates-java="$CA_CERTIFICATES_JAVA_VERSION" 	; 	rm -rf /var/lib/apt/lists/*; 		[ "$(readlink -f "$JAVA_HOME")" = "$(docker-java-home)" ]; 		update-alternatives --get-selections | awk -v home="$(readlink -f "$JAVA_HOME")" 'index($3, home) == 1 { $2 = "manual"; print | "update-alternatives --set-selections" }'; 	update-alternatives --query java | grep -q 'Status: manual'
+RUN /bin/sh -c /var/lib/dpkg/info/ca-certificates-java.postinst configure
+RUN /bin/sh -c apt-get update \
+    && apt-get install -y git curl \
+    && rm -rf /var/lib/apt/lists/*
+ARG user=jenkins
+ARG group=jenkins
+ARG uid=1000
+ARG gid=1000
+ARG http_port=8080
+ARG agent_port=50000
+ENV JENKINS_HOME=/var/jenkins_home
+ENV JENKINS_SLAVE_AGENT_PORT=50000
+RUN |6 agent_port=50000 gid=1000 group=jenkins http_port=8080 uid=1000 user=jenkins /bin/sh -c groupadd -g ${gid} ${group}     \
+    && useradd -d "$JENKINS_HOME" -u ${uid} -g ${gid} -m -s /bin/bash ${user}
+VOLUME [/var/jenkins_home]
+RUN |6 agent_port=50000 gid=1000 group=jenkins http_port=8080 uid=1000 user=jenkins /bin/sh -c mkdir -p /usr/share/jenkins/ref/init.groovy.d
+ENV TINI_VERSION=0.14.0
+ENV TINI_SHA=6c41ec7d33e857d4779f14d9c74924cab0c7973485d2972419a3b7c7620ff5fd
+RUN |6 agent_port=50000 gid=1000 group=jenkins http_port=8080 uid=1000 user=jenkins /bin/sh -c curl -fsSL https://github.com/krallin/tini/releases/download/v${TINI_VERSION}/tini-static-amd64 -o /bin/tini \
+    && chmod +x /bin/tini   \
+    && echo "$TINI_SHA  /bin/tini" | sha256sum -c -
+COPY file:c629bc0b9ecb5b7233000c973f65721df4ce1307a5d5b33ac3871ff61a9172ff in /usr/share/jenkins/ref/init.groovy.d/tcp-slave-agent-port.groovy
+ARG JENKINS_VERSION
+ENV JENKINS_VERSION=2.60.1
+ARG JENKINS_SHA=34fde424dde0e050738f5ad1e316d54f741c237bd380bd663a07f96147bb1390
+ARG JENKINS_URL=https://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-war/2.60.1/jenkins-war-2.60.1.war
+RUN |8 JENKINS_SHA=34fde424dde0e050738f5ad1e316d54f741c237bd380bd663a07f96147bb1390 JENKINS_URL=https://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-war/2.60.1/jenkins-war-2.60.1.war agent_port=50000 gid=1000 group=jenkins http_port=8080 uid=1000 user=jenkins /bin/sh -c curl -fsSL ${JENKINS_URL} -o /usr/share/jenkins/jenkins.war   \
+    && echo "${JENKINS_SHA}  /usr/share/jenkins/jenkins.war" | sha256sum -c -
+ENV JENKINS_UC=https://updates.jenkins.io
+RUN |8 JENKINS_SHA=34fde424dde0e050738f5ad1e316d54f741c237bd380bd663a07f96147bb1390 JENKINS_URL=https://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-war/2.60.1/jenkins-war-2.60.1.war agent_port=50000 gid=1000 group=jenkins http_port=8080 uid=1000 user=jenkins /bin/sh -c chown -R ${user} "$JENKINS_HOME" /usr/share/jenkins/ref
+EXPOSE 8080/tcp
+EXPOSE 50000/tcp
+ENV COPY_REFERENCE_FILE_LOG=/var/jenkins_home/copy_reference_file.log
+USER [jenkins]
+COPY file:26c3c5818bc87662d1f4905a3ed73bd55a0a75f731c7dc52d0599c00f51408e9 in /usr/local/bin/jenkins-support
+COPY file:7eec179a0dd3aad4a9c9290bc4d85e4775c8cf6bc2932527892ca6e87739e474 in /usr/local/bin/jenkins.sh
+ENTRYPOINT ["/bin/tini" "--" "/usr/local/bin/jenkins.sh"]
+COPY file:9f0a7faf8951842e0f42c1a3f3bb54ff4ec5263064508077347c57376da68b46 in /usr/local/bin/plugins.sh
+COPY file:753d5d2fe45666249deda1ab40e45bcc05bf72ad52b7fa5e7b979083dae2b26b in /usr/local/bin/install-plugins.sh
